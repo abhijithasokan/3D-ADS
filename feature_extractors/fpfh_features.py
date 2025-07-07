@@ -1,8 +1,8 @@
-from utils.mvtec3d_util import *
+from ..utils.mvtec3d_util import *
 import open3d as o3d
 import numpy as np
 import torch
-from feature_extractors.features import Features
+from .features import Features
 
 
 def get_fpfh_features(organized_pc, voxel_size=0.05):

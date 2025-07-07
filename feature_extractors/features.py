@@ -3,14 +3,14 @@ PatchCore logic based on https://github.com/rvorias/ind_knn_ad
 """
 
 from sklearn import random_projection
-from utils.utils import KNNGaussianBlur
-from utils.utils import set_seeds
+from ..utils.utils import KNNGaussianBlur
+from ..utils.utils import set_seeds
 import numpy as np
 from sklearn.metrics import roc_auc_score
 import timm
 import torch
 from tqdm import tqdm
-from utils.au_pro_util import calculate_au_pro
+from ..utils.au_pro_util import calculate_au_pro
 
 
 class Features(torch.nn.Module):
