@@ -13,9 +13,62 @@ from tqdm import tqdm
 from ..utils.au_pro_util import calculate_au_pro
 
 
-class Features(torch.nn.Module):
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
-    def __init__(self, image_size=224, f_coreset=0.1, coreset_eps=0.9):
+class GaussianWeightedPooling(nn.Module):
+    FPFH_DIM = 33
+    def __init__(self, kernel_size=33, sigma=15.0, stride=7):
+        super(GaussianWeightedPooling, self).__init__()
+        self.kernel_size = kernel_size
+        self.sigma = sigma
+        self.stride = stride
+        
+        # Generate 2D Gaussian kernel
+        self._kernel_wt = self._create_gaussian_kernel(kernel_size, sigma)
+
+        #repeat the kernel for each channel
+        FD = GaussianWeightedPooling.FPFH_DIM
+        self.kernel = self._kernel_wt.unsqueeze(0).unsqueeze(0).repeat(FD, 1, 1, 1)
+
+    def _create_gaussian_kernel(self, kernel_size, sigma):
+        # Create a grid of coordinates centered at (0, 0)
+        center = (kernel_size - 1) / 2
+        x = torch.arange(kernel_size, dtype=torch.float64) - center
+        y = torch.arange(kernel_size, dtype=torch.float64) - center
+        x, y = torch.meshgrid(x, y, indexing='ij')
+        
+        # Compute Gaussian weights: exp(-(x^2 + y^2) / (2 * sigma^2))
+        distance = x**2 + y**2
+        kernel = torch.exp(-distance / (2 * sigma**2))
+        
+        # Normalize kernel to sum to 1
+        kernel = kernel / kernel.sum()
+        
+        # Reshape for convolution: [1, 1, kernel_size, kernel_size]
+        return kernel
+    
+    def forward(self, x):
+        # Input x: [batch_size, channels=33, height=224, width=224]
+        batch_size, channels, height, width = x.shape
+
+        if (height, width) != (222, 222):
+            raise ValueError(f"The current implementation is hardcoded for input tensors of size 222x222, but got {height}x{width}")
+
+        # Move kernel to the same device as input
+        kernel = self.kernel.to(x.device)
+        
+        # Apply Gaussian-weighted convolution
+        # Use groups=channels to apply the same 2D kernel to each channel independently
+        x = F.conv2d(x, kernel, stride=self.stride, padding=0, groups=channels)
+        
+        # Output: [batch_size, 33, 28, 28] (for stride=8, kernel_size=33)
+        return x
+
+
+class Features(torch.nn.Module):
+    def __init__(self, image_size=224, f_coreset=0.1, coreset_eps=0.9, gaussian_pooling_args=None):
         super().__init__()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.deep_feature_extractor = Model(device=self.device)
@@ -30,7 +83,12 @@ class Features(torch.nn.Module):
         self.n_reweight = 3
         set_seeds(0)
         self.patch_lib = []
-        self.resize = torch.nn.AdaptiveAvgPool2d((28, 28))
+
+        if gaussian_pooling_args is not None:
+            self.resize = GaussianWeightedPooling(**gaussian_pooling_args)
+            print(f"Using Gaussian pooling with args: {gaussian_pooling_args}")
+        else:
+            self.resize = torch.nn.AdaptiveAvgPool2d((28, 28))
 
         self.image_preds = list()
         self.image_labels = list()
