@@ -6,9 +6,16 @@ from .features import Features
 
 
 def get_fpfh_features(organized_pc, voxel_size=0.05):
+    if organized_pc.ndim != 3 or organized_pc.shape[0] != 3:
+        raise ValueError("Input organized_pc must be of shape (3, H, W)")
+    
     organized_pc_np = organized_pc.squeeze().permute(1, 2, 0).numpy()
     unorganized_pc = organized_pc_to_unorganized_pc(organized_pc=organized_pc_np)
-    nonzero_indices = np.nonzero(np.all(unorganized_pc != 0, axis=1))[0]
+    
+    # points that are all zeros
+    valid_mask = ~np.all(unorganized_pc == 0, axis=1)
+    nonzero_indices = np.where(valid_mask)[0]
+
     unorganized_pc_no_zeros = unorganized_pc[nonzero_indices, :]
     o3d_pc = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(unorganized_pc_no_zeros))
 
@@ -23,12 +30,14 @@ def get_fpfh_features(organized_pc, voxel_size=0.05):
     full_fpfh[nonzero_indices, :] = fpfh
     full_fpfh_reshaped = full_fpfh.reshape((organized_pc_np.shape[0], organized_pc_np.shape[1], fpfh.shape[1]))
     full_fpfh_tensor = torch.tensor(full_fpfh_reshaped).permute(2, 0, 1).unsqueeze(dim=0)
+    
+    del o3d_pc, pcd_fpfh, fpfh, full_fpfh, full_fpfh_reshaped
     return full_fpfh_tensor
 
 
 class FPFHFeatures(Features):
-    def add_sample_to_mem_bank(self, sample):
-        fpfh_feature_maps = get_fpfh_features(sample[1])
+    def add_sample_to_mem_bank(self, sample, voxel_size=0.05):
+        fpfh_feature_maps = get_fpfh_features(sample[1], voxel_size=voxel_size)
         fpfh_feature_maps_resized = self.resize(self.average(fpfh_feature_maps))
         fpfh_patch = fpfh_feature_maps_resized.reshape(fpfh_feature_maps_resized.shape[1], -1).T
         self.patch_lib.append(fpfh_patch)
